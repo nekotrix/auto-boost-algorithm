@@ -8,10 +8,11 @@
 
 # Requires manually installing:
 # SVT-AV1-Essential: https://github.com/nekotrix/SVT-AV1-Essential/releases
+# in your system PATH or the script's directory, and:
 # Vship (GPU):       https://github.com/Line-fr/Vship/releases
 # or vs-zip (CPU):   https://github.com/dnjulek/vapoursynth-zip/releases/tag/R6
 # and FFMS2:         https://github.com/FFMS/ffms2/releases
-# in your system PATH or the script's directory
+# in the VapourSynth plugin directory
 
 # Auto-Boost-Essential
 # Copyright (c) Trix and contributors
@@ -109,19 +110,19 @@ version = args.version
 
 if version:
     print(f"Auto-Boost-Essential v1.3 (Release)")
-    exit(1)
+    raise SystemExit(1)
 
 if not os.path.exists(src_file):
     print(f"The source input doesn't exist. Double-check the provided path.")
-    exit(1)
+    raise SystemExit(1)
 
 if fast_speed not in ["medium", "fast", "faster"]:
     print(f"The fast pass speed must be either medium, fast or faster.")
-    exit(1)
+    raise SystemExit(1)
 
 if final_speed not in ["slower", "slow", "medium", "fast", "faster"]:
     print(f"The final pass speed must be either slower, slow, medium, fast or faster.")
-    exit(1)
+    raise SystemExit(1)
 
 if "--crf" in fast_params:
     index = fast_params.index("--crf")
@@ -129,11 +130,11 @@ if "--crf" in fast_params:
 else:
     if quality not in ["low", "medium", "high"]:
         print(f"The quality preset must be either low, medium or high.")
-        exit(1)
+        raise SystemExit(1)
 
 if stage != 0 and resume:
     print(f"Resume will auto-resume from the last (un)completed stage. You cannot provide both stage and resume.")
-    exit(1)
+    raise SystemExit(1)
 
 if os.path.exists(tmp_dir):
     if resume and os.path.exists(stage_file): 
@@ -142,7 +143,7 @@ if os.path.exists(tmp_dir):
             stage_resume = int(lines[0].strip())
             if stage_resume == 5:
                 print(f'Final encode already finished. Nothing to resume.')
-                exit(0)
+                raise SystemExit(0)
             else:
                 print(f'Resuming from stage {stage_resume}.')
 
@@ -395,7 +396,7 @@ def get_file_info(file: Path, mode: str) -> tuple[list[int], bool, int, int, int
             src = core.ffms2.Source(source=file, cache=False)
     except:
         console.print(f"[red]Cannot retrieve file information. Did you run the previous stages?")
-        exit(1)
+        raise SystemExit(1)
 
     nframe = len(src)
     if mode == "len":
@@ -483,13 +484,13 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
 
     if nframe_enc > nframe_src:
         console.print(f"[red]Something wrong occurred with resume, report the issue and try re-running the {state} pass from scratch as a temporary workaround...")
-        exit(1)
+        raise SystemExit(1)
     elif nframe_enc == nframe_src:
         print(f"Nothing to resume in the {state} pass. Continuing...")
         if state == "final":
             print(f'Stage 4 complete!')
             console.print(f"\n[bold]Auto-boost complete!")
-            exit(0)
+            raise SystemExit(0)
         return "", "", zones_file, "", "", "", ""
 
     total_prev = get_total_previous_frames(enc_file)
@@ -575,7 +576,7 @@ def track_progress(vspipe_cmd: list[str], svt_cmd: list[str], enc_pass: str):
                 console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
                 vspipe_proc.terminate()
                 svt_proc.terminate()
-                exit(1)
+                raise SystemExit(1)
 
             progress.update(
                 task,
@@ -590,12 +591,12 @@ def track_progress(vspipe_cmd: list[str], svt_cmd: list[str], enc_pass: str):
             if vspipe_proc.returncode != 0:
                 progress.stop()
                 console.print(f"[red]The {enc_pass} pass encountered an error:[/red] vspipe exited with code {vspipe_proc.returncode}")
-                exit(1)
+                raise SystemExit(1)
                 
             if svt_proc.returncode != 0:
                 progress.stop()
                 console.print(f"[red]The {enc_pass} pass encountered an error:[/red] SVT-AV1 exited with code {svt_proc.returncode}")
-                exit(1)
+                raise SystemExit(1)
             
             progress.update(
                 task,
@@ -606,11 +607,11 @@ def track_progress(vspipe_cmd: list[str], svt_cmd: list[str], enc_pass: str):
         except subprocess.CalledProcessError as e:
             progress.stop()
             console.print(f"[red]The {enc_pass} pass encountered an error:[/red]\n{e}")
-            exit(1)
+            raise SystemExit(1)
         except Exception as e:
             progress.stop()
             console.print(f"[red]The {enc_pass} pass encountered an error:[/red]\n{e}")
-            exit(1)
+            raise SystemExit(1)
         
 def fast_pass() -> None:
     """
@@ -651,7 +652,7 @@ def fast_pass() -> None:
 
         except subprocess.CalledProcessError as e:
             console.print(f"[red]The fast pass encountered an error:\n{e}\nDid you make sure the source is 10-bit?")
-            exit(1)
+            raise SystemExit(1)
 
     else:
 
@@ -721,7 +722,7 @@ def final_pass() -> None:
 
         except subprocess.CalledProcessError as e:
             console.print(f"[red]The final pass encountered an error:\n{e}\nDid you make sure the source is 10-bit?")
-            exit(1)
+            raise SystemExit(1)
 
     else:
         
@@ -759,16 +760,16 @@ def calculate_ssimu2() -> None:
         source_clip = core.ffms2.Source(source=src_file, cachefile=f"{cache_file}")
     except:
         console.print(f"[red]Error indexing source file. Is it corrupted?")
-        exit(1)
+        raise SystemExit(1)
     try:
         encoded_clip = core.ffms2.Source(source=fast_output_file, cache=False)
     except:
         console.print(f"[red]Error indexing fast pass file. Did you run stage 1?")
-        exit(1)
+        raise SystemExit(1)
 
     if len(source_clip) != len(encoded_clip):
         console.print(f"[red]Source frame count and encode frame count are different. Did you successfully run stage 1?")
-        exit(1)
+        raise SystemExit(1)
 
     if verbose:
         console.print(f"Source: {len(source_clip)} frames\nEncode: {len(encoded_clip)} frames")
@@ -792,7 +793,7 @@ def calculate_ssimu2() -> None:
                 result = core.vszip.Metrics(cut_source_clip, cut_encoded_clip, mode=0)
             except:
                 console.print(f"[red]vs-zip not found either. Check your installation.")
-                exit(1)
+                raise SystemExit(1)
 
     score_list = [None] * result.num_frames
 
@@ -871,7 +872,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
 
     if not ssimu2_log_file.exists():
         console.print(f"[red]Cannot find the metrics file. Did you run the previous stages?")
-        exit(1)
+        raise SystemExit(1)
 
     with open(ssimu2_log_file, "r") as file:
         for line in file:
@@ -881,7 +882,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
                 ssimu2_scores.append(score)
             else:
                 console.print("[red]Unexpected error with metric log file.\nTry re-running stage 2. Exiting.")
-                exit(1)
+                raise SystemExit(1)
 
     ssimu2_total_scores = []
     ssimu2_percentile_15_total = []
@@ -967,7 +968,7 @@ match stage:
                 calculate_ssimu2()
             except KeyboardInterrupt:
                 console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
-                exit(1)
+                raise SystemExit(1)
             with open(stage_file, "w") as file:
                 file.write("3")
             print(f'Stage 2 complete!')
@@ -976,7 +977,7 @@ match stage:
                 calculate_zones(ranges, hr, nframe)
             except KeyboardInterrupt:
                 console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
-                exit(1)
+                raise SystemExit(1)
             with open(stage_file, "w") as file:
                 file.write("4")
             print(f'Stage 3 complete!')
@@ -996,7 +997,7 @@ match stage:
             calculate_ssimu2()
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
-            exit(1)
+            raise SystemExit(1)
         with open(stage_file, "w") as file:
             file.write("3")
         print(f'Stage 2 complete!')
@@ -1006,7 +1007,7 @@ match stage:
             calculate_zones(ranges, hr, nframe)
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
-            exit(1)
+            raise SystemExit(1)
         with open(stage_file, "w") as file:
             file.write("4")
         print(f'Stage 3 complete!')
@@ -1019,6 +1020,6 @@ match stage:
             print(f'Stage 4 complete!')
     case _:
         console.print(f"[red]Stage argument invalid, exiting.")
-        exit(1)
+        raise SystemExit(1)
 
 console.print(f"\n[bold]Auto-boost complete!")
