@@ -17,18 +17,18 @@
 # Auto-Boost-Essential
 # Copyright (c) Trix and contributors
 # Thanks to the AV1 discord community members <3
-# 
-# 
+#
+#
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the "Software"),
 # to deal in the Software without restriction, including without limitation
 # the rights to use, copy, modify, merge, publish, distribute, sublicense,
 # and/or sell copies of the Software, and to permit persons to whom the
 # Software is furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be
 # included in all copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
@@ -37,7 +37,7 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
 # DEALINGS IN THE SOFTWARE.
 
-from vstools import vs, core, clip_async_render
+from vstools import vs, core, depth, DitherType, clip_async_render
 from vstools.functions.progress import get_render_progress, FPSColumn
 from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 from rich.console import Console
@@ -109,19 +109,19 @@ no_boosting = args.no_boosting
 version = args.version
 
 if version:
-    print(f"Auto-Boost-Essential v1.3 (Release)")
+    print("Auto-Boost-Essential v1.4 (Release)")
     raise SystemExit(1)
 
 if not os.path.exists(src_file):
-    print(f"The source input doesn't exist. Double-check the provided path.")
+    print("The source input doesn't exist. Double-check the provided path.")
     raise SystemExit(1)
 
 if fast_speed not in ["medium", "fast", "faster"]:
-    print(f"The fast pass speed must be either medium, fast or faster.")
+    print("The fast pass speed must be either medium, fast or faster.")
     raise SystemExit(1)
 
 if final_speed not in ["slower", "slow", "medium", "fast", "faster"]:
-    print(f"The final pass speed must be either slower, slow, medium, fast or faster.")
+    print("The final pass speed must be either slower, slow, medium, fast or faster.")
     raise SystemExit(1)
 
 if "--crf" in fast_params:
@@ -129,11 +129,11 @@ if "--crf" in fast_params:
     quality = int(fast_params[index+6:index+8])
 else:
     if quality not in ["low", "medium", "high"]:
-        print(f"The quality preset must be either low, medium or high.")
+        print("The quality preset must be either low, medium or high.")
         raise SystemExit(1)
 
 if stage != 0 and resume:
-    print(f"Resume will auto-resume from the last (un)completed stage. You cannot provide both stage and resume.")
+    print("Resume will auto-resume from the last (un)completed stage. You cannot provide both stage and resume.")
     raise SystemExit(1)
 
 if os.path.exists(tmp_dir):
@@ -142,7 +142,7 @@ if os.path.exists(tmp_dir):
             lines = file.readlines()
             stage_resume = int(lines[0].strip())
             if stage_resume == 5:
-                print(f'Final encode already finished. Nothing to resume.')
+                print('Final encode already finished. Nothing to resume.')
                 raise SystemExit(0)
             else:
                 print(f'Resuming from stage {stage_resume}.')
@@ -192,16 +192,14 @@ def merge_ivf_parts(base_path: Path, output_path: Path, fwidth: int, fheight: in
 
     num_frames = 0
     framedata = b''
-    i = 0
-    for i in range(len(parts)):
-        
-        if not os.path.exists(parts[i]):
+    for i, part in enumerate(parts):
+
+        if not os.path.exists(part):
             print(f"Part {i} not found. Muxing aborted.")
             return
 
-        num_frames += int.from_bytes(read_from_offset(parts[i], 24, 4), 'little')
-        framedata += read_from_offset(parts[i], 32, -1)
-        i += 1
+        num_frames += int.from_bytes(read_from_offset(part, 24, 4), 'little')
+        framedata += read_from_offset(part, 32, -1)
 
     with open(output_path, "wb+") as file:
         header = struct.pack(
@@ -226,7 +224,7 @@ def merge_ivf_parts(base_path: Path, output_path: Path, fwidth: int, fheight: in
             size = int.from_bytes(file.read(4), 'little')    # Get size of frame data
             file.write(i.to_bytes(8, "little"))              # Rewrite the timestamp
             offset += 12 + size                              # Size of frame + size of frame header
-    
+
     if verbose:
         console.print(f"Merged {len(parts)} chunks into {output_path} ({num_frames} total frames)")
 
@@ -244,48 +242,48 @@ def create_offset_zones_file(original_zones_path: Path, offset_zones_path: Path,
     """
     if no_boosting:
         return
-    
+
     if not original_zones_path.exists():
         print(f"Original zones file {original_zones_path} not found!")
         return
-    
+
     with original_zones_path.open("r") as file:
         zones_content = file.read().strip()
-    
+
     if not zones_content.startswith("Zones :"):
         print(f"Invalid zones file format in {original_zones_path}")
         return
-    
+
     zones_data = zones_content.replace("Zones :", "").strip()
     zone_parts = [zone.strip() for zone in zones_data.split(";") if zone.strip()]
-    
+
     offset_zones = []
     for zone in zone_parts:
         parts = zone.split(",")
         if len(parts) not in [3, 4]:
             continue
-            
+
         start = int(parts[0])
         end = int(parts[1])
         crf = parts[2]
-        
+
         new_start = start - offset_frames
         new_end = end - offset_frames
-        
+
         # Skip invalid zones
         if new_end <= 0:
             continue
-            
+
         # Clamp start to 0 if it goes negative (though this shouldn't happen with keyframe boundaries)
         if new_start < 0:
             new_start = 0
-            
+
         offset_zones.append(f"{new_start},{new_end},{crf}")
-    
+
     if offset_zones:
         with offset_zones_path.open("w") as file:
             file.write(f"Zones : {';'.join(offset_zones)};")
-        
+
         if verbose:
             console.print(f"Offset: {offset_frames} frames")
             console.print(f"Zones: {len(zone_parts)} -> {len(offset_zones)}")
@@ -341,7 +339,7 @@ def get_next_filename(base_path: Path) -> Path:
     files = sorted(parent.glob(f"{base_escaped}__*{suffix}"), key=lambda x: int(x.stem.split("__")[-1]))
     if not files:
         return parent / f"{base}__1{suffix}"
-    
+
     last_index = int(files[-1].stem.split("__")[-1])
     return parent / f"{base}__{last_index + 1}{suffix}"
 
@@ -358,7 +356,7 @@ def get_total_previous_frames(enc_file: Path) -> int:
     base = enc_file.stem.split("__")[0]
     base_escaped = glob.escape(base)
     ivf_files = sorted(enc_file.parent.glob(f"{base_escaped}__*.ivf"), key=lambda x: int(x.stem.split('__')[-1]))
-    
+
     total = 0
     for ivf in ivf_files:
         with open(ivf, "rb") as file:
@@ -367,7 +365,7 @@ def get_total_previous_frames(enc_file: Path) -> int:
             total += frame_count
     return total
 
-def get_file_info(file: Path, mode: str) -> tuple[list[int], bool, int, int, int, int, int]:
+def get_file_info(vfile: Path, mode: str) -> tuple[list[int], bool, int, int, int, int, int]:
     """
     Parse a video file for information including keyframes placement.
 
@@ -391,9 +389,9 @@ def get_file_info(file: Path, mode: str) -> tuple[list[int], bool, int, int, int
             return [int(line.strip()) for line in lines[1:-3]], lines[0].strip() == "True", int(lines[-5].strip()) , int(lines[-4].strip()) , int(lines[-3].strip()), int(lines[-2].strip()), int(lines[-1].strip())
     try:
         if mode == "src":
-            src = core.ffms2.Source(source=file, cachefile=f"{cache_file}")
+            src = core.ffms2.Source(source=vfile, cachefile=f"{cache_file}")
         else:
-            src = core.ffms2.Source(source=file, cache=False)
+            src = core.ffms2.Source(source=vfile, cache=False)
     except:
         console.print(f"[red]Cannot retrieve file information. Did you run the previous stages?")
         raise SystemExit(1)
@@ -403,7 +401,7 @@ def get_file_info(file: Path, mode: str) -> tuple[list[int], bool, int, int, int
         return 0, 0, nframe, 0, 0, 0, 0
 
     fwidth, fheight = src[0].width, src[0].height
-    hr = True if fwidth * fheight > 1920 * 1080 else False
+    hr = fwidth * fheight > 1920 * 1080
     with open(kf_file, "w") as file:
         file.write(str(hr)+"\n")
 
@@ -441,7 +439,7 @@ def get_file_info(file: Path, mode: str) -> tuple[list[int], bool, int, int, int
         )
 
         progress.update(task, description="[cyan]Found scenes                  ", completed=nframe)
-    
+
     if 'src' in locals():
         del src
         gc.collect()
@@ -458,7 +456,7 @@ def get_file_info(file: Path, mode: str) -> tuple[list[int], bool, int, int, int
 
     return iframe_list, hr, nframe, fwidth, fheight, ffpsnum, ffpsden
 
-def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[str, str, Path, int, int, int, int]:
+def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[str, int, Path, int, int, int, int]:
     """
     Determines where to resume encoding by trimming the current encode at the last full GOP,
     summing previous trimmed chunks, creating offset zones file, and returning the skip/start options.
@@ -471,11 +469,11 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
     :type state: str
 
     :return: skip options, start options, offset zones file path, resolution and framerate
-    :rtype: tuple[str, str, Path, int, int, int, int]
+    :rtype: tuple[str, int, Path, int, int, int, int]
     """
     if not enc_file.exists():
         return "", "", zones_file, "", "", "", ""
-    
+
     _, _, nframe_enc, _, _, _, _ = get_file_info(enc_file, "len")
     _, _, nframe_src, _, _, ffpsnum, ffpsden = get_file_info(src_file, "src")
 
@@ -488,8 +486,8 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
     elif nframe_enc == nframe_src:
         print(f"Nothing to resume in the {state} pass. Continuing...")
         if state == "final":
-            print(f'Stage 4 complete!')
-            console.print(f"\n[bold]Auto-boost complete!")
+            print('Stage 4 complete!')
+            console.print("\n[bold]Auto-boost complete!")
             raise SystemExit(0)
         return "", "", zones_file, "", "", "", ""
 
@@ -514,11 +512,10 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
         offset_zones_path = get_next_filename(zones_file)
         create_offset_zones_file(zones_file, offset_zones_path, total_resume_point)
 
-    return f"--skip {total_resume_point}", f"--start {total_resume_point}", offset_zones_path, fwidth, fheight, ffpsnum, ffpsden
+    return f"--skip {total_resume_point}", total_resume_point, offset_zones_path, fwidth, fheight, ffpsnum, ffpsden
 
-def track_progress(vspipe_cmd: list[str], svt_cmd: list[str], enc_pass: str):
+def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
     is_fast = " " if enc_pass == "fast" else ""
-    frame_pattern = re.compile(r"Frame:\s+(\d+)/(\d+)(?:\s+\(([\d.]+)\s+fps\))?")
 
     with Progress(
         SpinnerColumn(),
@@ -534,76 +531,58 @@ def track_progress(vspipe_cmd: list[str], svt_cmd: list[str], enc_pass: str):
         task = progress.add_task("[yellow]Initializing                  ", total=None)
 
         try:
-            vspipe_proc = subprocess.Popen(
-                vspipe_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
+            vpy_vars = {}
+            exec(open(vpy_file).read(), globals(), vpy_vars)
+            clip_og = clip = vpy_vars["src"]
+            if vspipe_resume_value:
+                vspipe_resume_value_loc = int(vspipe_resume_value)
+                clip = vpy_vars["src"][vspipe_resume_value_loc:]
+            else:
+                vspipe_resume_value_loc = 0
 
             svt_proc = subprocess.Popen(
                 svt_cmd,
-                stdin=vspipe_proc.stdout,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
 
-            vspipe_proc.stdout.close()
+            progress.update(
+                task,
+                description=f"[green]Encoding {enc_pass} pass           {is_fast}",
+                completed=vspipe_resume_value_loc,
+                total=clip_og.num_frames
+            )
 
-            try:
-                while True:
-                    line = vspipe_proc.stderr.readline()
-                    if not line:
-                        break
-                    line = line.strip()
-                
-                    match = frame_pattern.search(line)
-                    if match:
-                        current_frame = int(match.group(1))
-                        total_frames = int(match.group(2))
-                    
-                        if progress.tasks[task].total is None:
-                            progress.update(
-                                task,
-                                description=f"[green]Encoding {enc_pass} pass           {is_fast}",
-                                total=total_frames
-                            )
+            def prog_func(current_frame, total_frames):
+                progress.update(task, completed=vspipe_resume_value_loc+current_frame)
 
-                        progress.update(task, completed=current_frame)
-
-            except KeyboardInterrupt:
-                progress.stop()
-                console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
-                vspipe_proc.terminate()
-                svt_proc.terminate()
-                raise SystemExit(1)
+            clip.output(svt_proc.stdin, y4m=True, progress_update=prog_func)
 
             progress.update(
                 task,
                 description=f"[green]Finalizing {enc_pass} pass         {is_fast}",
-                completed=progress.tasks[task].total - 1
+                completed=vspipe_resume_value_loc + progress.tasks[task].total - 1
             )
-            
-            vspipe_proc.stderr.close()
-            vspipe_proc.wait()
-            svt_proc.wait()
 
-            if vspipe_proc.returncode != 0:
-                progress.stop()
-                console.print(f"[red]The {enc_pass} pass encountered an error:[/red] vspipe exited with code {vspipe_proc.returncode}")
-                raise SystemExit(1)
-                
+            svt_proc.communicate()
+
             if svt_proc.returncode != 0:
                 progress.stop()
                 console.print(f"[red]The {enc_pass} pass encountered an error:[/red] SVT-AV1 exited with code {svt_proc.returncode}")
                 raise SystemExit(1)
-            
+
             progress.update(
                 task,
                 description=f"[cyan]Completed {enc_pass} pass          {is_fast}",
-                completed=progress.tasks[task].total
+                completed=vspipe_resume_value_loc + progress.tasks[task].total
             )
 
+        except KeyboardInterrupt:
+            progress.stop()
+            console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
+            svt_proc.terminate()
+            raise SystemExit(1)
         except subprocess.CalledProcessError as e:
             progress.stop()
             console.print(f"[red]The {enc_pass} pass encountered an error:[/red]\n{e}")
@@ -612,29 +591,28 @@ def track_progress(vspipe_cmd: list[str], svt_cmd: list[str], enc_pass: str):
             progress.stop()
             console.print(f"[red]The {enc_pass} pass encountered an error:[/red]\n{e}")
             raise SystemExit(1)
-        
+
 def fast_pass() -> None:
     """
     Quick fast pass to gather scene complexity information.
     """
-    if type(quality) == int:
+    if isinstance(quality, int):
         encoder_params = f'--speed {fast_speed}' 
     else:
         encoder_params = f'--speed {fast_speed} --quality {quality}' 
     if fast_params:
         encoder_params = f'{fast_params} ' + encoder_params
-    
+
     if verbose:
         console.print(f'Fast params: "{encoder_params}"')
 
     encoder_params_list = encoder_params.split()
 
     svt_resume_list = ""
-    vspipe_resume_list = ""
+    vspipe_resume_value = ""
     if resume:
-        svt_resume_string, vspipe_resume_string, _, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(fast_output_file, "", "fast")
+        svt_resume_string, vspipe_resume_value, _, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(fast_output_file, "", "fast")
         svt_resume_list = svt_resume_string.split()
-        vspipe_resume_list = vspipe_resume_string.split()
 
     if file_ext in [".y4m", ".yuv"]:
 
@@ -656,14 +634,6 @@ def fast_pass() -> None:
 
     else:
 
-        fast_vspipe_cmd = [
-            'vspipe', vpy_file,
-            *vspipe_resume_list,
-            '-c', 'y4m',
-            '-p',
-            '-'
-            ]
-
         fast_svt_cmd = [
             'SvtAv1EncApp',
             '-i', '-',
@@ -672,7 +642,7 @@ def fast_pass() -> None:
             '-b', fast_output_file
             ]
 
-        track_progress(fast_vspipe_cmd, fast_svt_cmd, "fast")
+        track_progress(vspipe_resume_value, fast_svt_cmd, "fast")
 
     resume_file = tmp_dir / f"{fast_output_file.stem}__1.ivf"
     if resume and resume_file.exists():
@@ -682,7 +652,7 @@ def final_pass() -> None:
     """
     Final encoding pass with proper zone offsetting for resume functionality.
     """
-    if type(quality) == int:
+    if isinstance(quality, int):
         encoder_params = f'--speed {final_speed}'
     else:
         encoder_params = f'--speed {final_speed} --quality {quality}'
@@ -695,12 +665,11 @@ def final_pass() -> None:
     encoder_params_list = encoder_params.split()
 
     svt_resume_list = ""
-    vspipe_resume_list = ""
+    vspipe_resume_value = ""
     active_zones_path = zones_file
     if resume:
-        svt_resume_string, vspipe_resume_string, active_zones_path, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(tmp_final_output_file, zones_file, "final")
+        svt_resume_string, vspipe_resume_value, active_zones_path, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(tmp_final_output_file, zones_file, "final")
         svt_resume_list = svt_resume_string.split()
-        vspipe_resume_list = vspipe_resume_string.split()
 
     if file_ext in [".y4m", ".yuv"]:
 
@@ -714,7 +683,7 @@ def final_pass() -> None:
 
         if not no_boosting:
             final_pass_command_y4m.extend(['--config', str(active_zones_path)])
-            
+
         final_pass_command_y4m.extend(['-b', tmp_final_output_file])
 
         try:
@@ -725,14 +694,6 @@ def final_pass() -> None:
             raise SystemExit(1)
 
     else:
-        
-        final_vspipe_cmd = [
-            'vspipe', vpy_file,
-            *vspipe_resume_list,
-            '-c', 'y4m',
-            '-p',
-            '-'
-            ]
 
         final_svt_cmd = [
             'SvtAv1EncApp',
@@ -740,14 +701,14 @@ def final_pass() -> None:
             '--progress', '0',
             *encoder_params_list
             ]
-        
+
         if not no_boosting:
             final_svt_cmd.extend(['--config', str(active_zones_path)])
-            
+
         final_svt_cmd.extend(['-b', tmp_final_output_file])
 
-        track_progress(final_vspipe_cmd, final_svt_cmd, "final")
-        
+        track_progress(vspipe_resume_value, final_svt_cmd, "final")
+
     resume_file = tmp_dir / f"{tmp_final_output_file.stem}__1.ivf"
     if resume and resume_file.exists():
         merge_ivf_parts(resume_file, tmp_final_output_file, fwidth, fheight, ffpsnum, ffpsden)
@@ -759,21 +720,21 @@ def calculate_ssimu2() -> None:
     try:
         source_clip = core.ffms2.Source(source=src_file, cachefile=f"{cache_file}")
     except:
-        console.print(f"[red]Error indexing source file. Is it corrupted?")
+        console.print("[red]Error indexing source file. Is it corrupted?")
         raise SystemExit(1)
     try:
         encoded_clip = core.ffms2.Source(source=fast_output_file, cache=False)
     except:
-        console.print(f"[red]Error indexing fast pass file. Did you run stage 1?")
+        console.print("[red]Error indexing fast pass file. Did you run stage 1?")
         raise SystemExit(1)
 
     if len(source_clip) != len(encoded_clip):
-        console.print(f"[red]Source frame count and encode frame count are different. Did you successfully run stage 1?")
+        console.print("[red]Source frame count and encode frame count are different. Did you successfully run stage 1?")
         raise SystemExit(1)
 
     if verbose:
         console.print(f"Source: {len(source_clip)} frames\nEncode: {len(encoded_clip)} frames")
-    
+
     skip = 3
     if skip > 1:
         cut_source_clip = source_clip[::skip]
@@ -871,7 +832,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
     ssimu2_scores: list[int] = []
 
     if not ssimu2_log_file.exists():
-        console.print(f"[red]Cannot find the metrics file. Did you run the previous stages?")
+        console.print("[red]Cannot find the metrics file. Did you run the previous stages?")
         raise SystemExit(1)
 
     with open(ssimu2_log_file, "r") as file:
@@ -950,7 +911,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
     
     console.print("[cyan]Successfully computed zones.")
 
-console.print(f"[bold]Auto-boost start!\n")
+console.print("[bold]Auto-boost start!\n")
 
 if no_boosting:
     stage = 4
@@ -961,37 +922,37 @@ match stage:
             fast_pass()
             with open(stage_file, "w") as file:
                 file.write("2")
-            print(f'Stage 1 complete!')
+            print('Stage 1 complete!')
         if stage_resume < 3:
             try:
-                ranges, hr, nframe, _, _, _, _ = get_file_info(fast_output_file, "")
                 calculate_ssimu2()
             except KeyboardInterrupt:
                 console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
                 raise SystemExit(1)
             with open(stage_file, "w") as file:
                 file.write("3")
-            print(f'Stage 2 complete!')
+            print('Stage 2 complete!')
         if stage_resume < 4:
-            try:                
+            try:
+                ranges, hr, nframe, _, _, _, _ = get_file_info(fast_output_file, "")
                 calculate_zones(ranges, hr, nframe)
             except KeyboardInterrupt:
                 console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
                 raise SystemExit(1)
             with open(stage_file, "w") as file:
                 file.write("4")
-            print(f'Stage 3 complete!')
+            print('Stage 3 complete!')
         if stage_resume < 5:
             final_pass()
             shutil.move(tmp_final_output_file, final_output_file)
             with open(stage_file, "w") as file:
                 file.write("5")
-            print(f'Stage 4 complete!')
+            print('Stage 4 complete!')
     case 1:
         fast_pass()
         with open(stage_file, "w") as file:
             file.write("2")
-        print(f'Stage 1 complete!')
+        print('Stage 1 complete!')
     case 2:
         try:
             calculate_ssimu2()
@@ -1000,7 +961,7 @@ match stage:
             raise SystemExit(1)
         with open(stage_file, "w") as file:
             file.write("3")
-        print(f'Stage 2 complete!')
+        print('Stage 2 complete!')
     case 3:
         try:
             ranges, hr, nframe, _, _, _, _ = get_file_info(fast_output_file, "")
@@ -1010,16 +971,16 @@ match stage:
             raise SystemExit(1)
         with open(stage_file, "w") as file:
             file.write("4")
-        print(f'Stage 3 complete!')
+        print('Stage 3 complete!')
     case 4:
         final_pass()
         shutil.move(tmp_final_output_file, final_output_file)
         with open(stage_file, "w") as file:
             file.write("5")
         if not no_boosting:
-            print(f'Stage 4 complete!')
+            print('Stage 4 complete!')
     case _:
-        console.print(f"[red]Stage argument invalid, exiting.")
+        console.print("[red]Stage argument invalid, exiting.")
         raise SystemExit(1)
 
-console.print(f"\n[bold]Auto-boost complete!")
+console.print("\n[bold]Auto-boost complete!")
