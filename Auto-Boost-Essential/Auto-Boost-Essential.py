@@ -50,9 +50,12 @@ import platform
 import shutil
 import struct
 import glob
+import sys
 import gc
 import os
 import re
+
+ver_str = "v1.4 (Release)"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-s", "--stage", help = "Select stage: 1 = fast encode, 2 = calculate metrics, 3 = generate zones, 4 = final encode | Default: all", default=0)
@@ -71,7 +74,19 @@ parser.add_argument("--verbose", action='store_true', help = "Enable more verbos
 parser.add_argument("-r", "--resume", action='store_true', help = "Resume the process from the last (un)completed stage | Default: not active")
 parser.add_argument("-nb", "--no-boosting", action='store_true', help = "Runs the script without boosting (final encode only) | Default: not active")
 parser.add_argument("-v", "--version", action='store_true', help = "Print script version")
+parser.add_argument("--debug", action='store_true', help = "Checks the installation and provides relevant information for troubleshooting | Default: not active")
+
+if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ['-v', '--version']):
+    print(f"Auto-Boost-Essential {ver_str}")
+    if len(sys.argv) == 1:
+        parser.print_help()
+    raise SystemExit(1)
+
 args = parser.parse_args()
+
+if args.version:
+    print(f"Auto-Boost-Essential {ver_str}")
+    raise SystemExit(1)
 
 stage = int(args.stage)
 src_file = Path(args.input).resolve()
@@ -106,10 +121,77 @@ cpu = args.cpu
 verbose = args.verbose
 resume = args.resume
 no_boosting = args.no_boosting
-version = args.version
 
-if version:
-    print("Auto-Boost-Essential v1.4 (Release)")
+if args.debug:
+    print("=" * 54)
+    print("SYSTEM INFORMATION")
+    print("=" * 54)
+
+    print(f"System: {platform.platform()}")
+
+    # Get current username for censoring
+    env_vars = ['USERNAME', 'USER', 'LOGNAME']
+    for var in env_vars:
+        username = os.getenv(var)
+        if username:
+            break
+
+    print(f"Python Version: {sys.version}")
+
+    python_path = sys.executable
+    censored_python_path = python_path.replace(username, '[USER]')
+    print(f"Python Path: {censored_python_path}")
+
+    current_dir = os.getcwd()
+    censored_dir = current_dir.replace(username, '[USER]')
+    print(f"Current Directory: {censored_dir}")
+
+    print("=" * 54)
+    print("SVT-AV1 VERSION INFORMATION")
+    print("=" * 54)
+
+    try:
+        result = subprocess.run(['SvtAv1EncApp'], capture_output=True, text=True, timeout=5)
+
+        lines = result.stderr.splitlines()
+        info_lines = [line for line in lines if line.startswith('Svt[info]')]
+
+        for line in info_lines[1:4]:
+            print(line)
+    except subprocess.TimeoutExpired:
+        print("Command timed out")
+    except FileNotFoundError:
+        print("ERROR: SvtAv1EncApp not found. Make sure it's in your PATH")
+    except PermissionError:
+        print("ERROR: Permission denied when trying to execute SvtAv1EncApp")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    print("=" * 54)
+    print("SCRIPT INFORMATION")
+    print("=" * 54)
+
+    print(f"Auto-Boost-Essential {ver_str}")
+    print(f"Vapoursynth Version: {vs.__version__[0]}.{vs.__version__[1]}")
+    if hasattr(core, 'vszip'):
+        print(f"Vs-zip Version: {core.vszip.version[0]}.{core.vszip.version[1]}")
+    else:
+        print("Vs-zip not present")
+    if hasattr(core, 'vship'):
+        print(f"Vship Version: {core.vship.version[0]}.{core.vship.version[1]}")
+    else:
+        print("Vship not present")
+
+    censored_src_file = str(src_file).replace(username, '[USER]')
+    print(f'Source File: "{censored_src_file}"')
+
+    if fast_params:
+        print(f'Fast Parameters: "{fast_params}"')
+    if final_params:
+        print(f'Final Parameters: "{final_params}"')
+
+    print("=" * 54)
+    print("=" * 54)
     raise SystemExit(1)
 
 if not os.path.exists(src_file):
