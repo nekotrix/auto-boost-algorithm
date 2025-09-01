@@ -115,7 +115,7 @@ quality = args.quality
 aggressive = args.aggressive
 unshackle = args.unshackle
 fast_params = args.fast_params if args.fast_params is not None else ""
-final_params = args.final_params
+final_params = args.final_params if args.final_params is not None else ""
 #grain_format = args.grain_format # upcoming auto-FGS feature
 cpu = args.cpu
 verbose = args.verbose
@@ -198,13 +198,21 @@ if not os.path.exists(src_file):
     print("The source input doesn't exist. Double-check the provided path.")
     raise SystemExit(1)
 
-if fast_speed not in ["medium", "fast", "faster"]:
-    print("The fast pass speed must be either medium, fast or faster.")
-    raise SystemExit(1)
+if "--preset" in fast_params.split():
+    index = fast_params.split().index("--preset")
+    fast_speed = int(fast_params.split()[index+1])
+else:
+    if fast_speed not in ["medium", "fast", "faster"]:
+        print("The fast pass speed must be either medium, fast or faster.")
+        raise SystemExit(1)
 
-if final_speed not in ["slower", "slow", "medium", "fast", "faster"]:
-    print("The final pass speed must be either slower, slow, medium, fast or faster.")
-    raise SystemExit(1)
+if "--preset" in final_params.split():
+    index = final_params.split().index("--preset")
+    final_speed = int(final_params.split()[index+1])
+else:
+    if final_speed not in ["slower", "slow", "medium", "fast", "faster"]:
+        print("The final pass speed must be either slower, slow, medium, fast or faster.")
+        raise SystemExit(1)
 
 if "--crf" in fast_params:
     index = fast_params.index("--crf")
@@ -678,12 +686,13 @@ def fast_pass() -> None:
     """
     Quick fast pass to gather scene complexity information.
     """
-    if isinstance(quality, int):
-        encoder_params = f'--speed {fast_speed}' 
-    else:
-        encoder_params = f'--speed {fast_speed} --quality {quality}' 
+    encoder_params = f''
+    if not isinstance(fast_speed, int):
+        encoder_params += f'--speed {fast_speed} '
+    if not isinstance(quality, int):
+        encoder_params += f'--quality {quality} '
     if fast_params:
-        encoder_params = f'{fast_params} ' + encoder_params
+        encoder_params += f'{fast_params}'
 
     if verbose:
         console.print(f'Fast params: "{encoder_params}"')
@@ -734,12 +743,13 @@ def final_pass() -> None:
     """
     Final encoding pass with proper zone offsetting for resume functionality.
     """
-    if isinstance(quality, int):
-        encoder_params = f'--speed {final_speed}'
-    else:
-        encoder_params = f'--speed {final_speed} --quality {quality}'
+    encoder_params = f''
+    if not isinstance(final_speed, int):
+        encoder_params += f'--speed {final_speed} '
+    if not isinstance(quality, int):
+        encoder_params += f'--quality {quality} '
     if final_params:
-        encoder_params = f'{final_params} ' + encoder_params
+        encoder_params += f'{final_params}'
 
     if verbose:
         console.print(f'Final params: "{encoder_params}"')
@@ -919,7 +929,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
 
     with open(ssimu2_log_file, "r") as file:
         for line in file:
-            match = re.search(r"([0-9]+): ([0-9]+\.[0-9]+)", line)
+            match = re.search(r"([0-9]+): (-?[0-9]+\.[0-9]+)", line)
             if match:
                 score = float(match.group(2))
                 ssimu2_scores.append(score)
