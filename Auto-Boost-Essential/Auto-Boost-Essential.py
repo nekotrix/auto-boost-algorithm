@@ -7,10 +7,10 @@
 # ///
 
 # Requires manually installing:
-# SVT-AV1-Essential: https://github.com/nekotrix/SVT-AV1-Essential/releases
+# SVT-AV1-Essential: https://github.com/nekotrix/SVT-AV1-Essential/discussions/12
 # in your system PATH or the script's directory, and:
 # Vship (GPU):       https://github.com/Line-fr/Vship/releases
-# or vs-zip (CPU):   https://github.com/dnjulek/vapoursynth-zip/releases/tag/R6
+# or vs-zip (CPU):   https://github.com/dnjulek/vapoursynth-zip/releases/
 # and FFMS2:         https://github.com/FFMS/ffms2/releases
 # in the VapourSynth plugin directory
 
@@ -38,7 +38,10 @@
 # DEALINGS IN THE SOFTWARE.
 
 from vstools import vs, core, depth, DitherType, clip_async_render
-from vstools.functions.progress import get_render_progress, FPSColumn
+try:
+    from vstools.functions.progress import get_render_progress, FPSColumn
+except:
+    from vstools.functions.render.progress import get_render_progress, FPSColumn
 from rich.progress import Progress, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 from rich.console import Console
 from statistics import quantiles
@@ -55,7 +58,7 @@ import gc
 import os
 import re
 
-ver_str = "v1.4 (Release)"
+ver_str = "v2.0 (Pre-Release)"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-s", "--stage", help = "Select stage: 1 = fast encode, 2 = calculate metrics, 3 = generate zones, 4 = final encode | Default: all", default=0)
@@ -69,24 +72,20 @@ parser.add_argument("-u", "--unshackle", action='store_true', help = "Less restr
 parser.add_argument("--fast-params", help="Custom fast encoding parameters")
 parser.add_argument("--final-params", help="Custom final encoding parameters")
 #parser.add_argument("-g", "--grain-format", help = "Select grain format: 1 = SVT-AV1 film-grain, 2 = Photon-noise table | Default: 1", default=1)
-parser.add_argument("--cpu", action='store_true', help = "Force the usage of vs-zip (CPU) instead of Vship (GPU) | Default: not active")
+parser.add_argument(
+    '--ssimu2',
+    nargs='?',
+    const='auto',
+    choices=['auto', 'cpu', 'gpu'],
+    help='SSIMU2 mode: auto (default when flag used), cpu (vs-zip), or gpu (Vship)'
+)
 parser.add_argument("--verbose", action='store_true', help = "Enable more verbosity | Default: not active")
 parser.add_argument("-r", "--resume", action='store_true', help = "Resume the process from the last (un)completed stage | Default: not active")
 parser.add_argument("-nb", "--no-boosting", action='store_true', help = "Runs the script without boosting (final encode only) | Default: not active")
-parser.add_argument("-v", "--version", action='store_true', help = "Print script version")
+parser.add_argument("-v", "--version", action='version', version = f"Auto-Boost-Essential {ver_str}")
 parser.add_argument("--debug", action='store_true', help = "Checks the installation and provides relevant information for troubleshooting | Default: not active")
 
-if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ['-v', '--version']):
-    print(f"Auto-Boost-Essential {ver_str}")
-    if len(sys.argv) == 1:
-        parser.print_help()
-    raise SystemExit(1)
-
 args = parser.parse_args()
-
-if args.version:
-    print(f"Auto-Boost-Essential {ver_str}")
-    raise SystemExit(1)
 
 stage = int(args.stage)
 src_file = Path(args.input).resolve()
@@ -106,6 +105,7 @@ fast_output_file = tmp_dir / f"{src_file.stem}_fastpass.ivf"
 tmp_final_output_file = tmp_dir / f"{src_file.stem}.ivf"
 final_output_file = output_dir / f"{src_file.stem}.ivf"
 ssimu2_log_file = tmp_dir / f"{src_file.stem}_ssimu2.log"
+xpsnr_log_file = tmp_dir / f"{src_file.stem}_xpsnr.log"
 zones_file = tmp_dir / f"{src_file.stem}_zones.cfg"
 stage_file = tmp_dir / f"{src_file.stem}_stage.txt"
 stage_resume = 0
@@ -117,7 +117,7 @@ unshackle = args.unshackle
 fast_params = args.fast_params if args.fast_params is not None else ""
 final_params = args.final_params if args.final_params is not None else ""
 #grain_format = args.grain_format # upcoming auto-FGS feature
-cpu = args.cpu
+ssimu2 = args.ssimu2 if args.ssimu2 is not None else ""
 verbose = args.verbose
 resume = args.resume
 no_boosting = args.no_boosting
@@ -216,7 +216,17 @@ else:
 
 if "--crf" in fast_params:
     index = fast_params.index("--crf")
-    quality = int(fast_params[index+6:index+8])
+    try:
+        quality = float(fast_params[index+6:index+11])
+    except:
+        try:
+            quality = float(fast_params[index+6:index+10])
+        except:
+            try:
+                quality = float(fast_params[index+6:index+8])
+            except:
+                print("CRF must have 0, 1 or 2 decimals.")
+                raise SystemExit(1)
 else:
     if quality not in ["low", "medium", "high"]:
         print("The quality preset must be either low, medium or high.")
@@ -247,10 +257,22 @@ if not os.path.exists(vpy_file):
     with open(vpy_file, 'w') as file:          
         file.write(
 f"""
-from vstools import core, depth, DitherType, set_output
+from vstools import vs, core, depth, DitherType, set_output
 core.max_cache_size = 1024
 src = core.ffms2.Source(source=r"{src_file}", cachefile=r"{cache_file}")
-src = depth(src, 10, dither_type=DitherType.NONE)
+bit_to_format = {{
+    8: vs.YUV420P8,
+    10: vs.YUV420P10,
+    12: vs.YUV420P12
+}}
+bit_to_dither = {{
+    8: DitherType.NONE,
+    10: DitherType.NONE,
+    12: DitherType.AUTO
+}}
+fmt = bit_to_format.get(src.format.bits_per_sample, vs.YUV420P16)
+dt = bit_to_dither.get(src.format.bits_per_sample, DitherType.AUTO)
+src = depth(src.resize.Bilinear(format=fmt), 10, dither_type=dt)
 set_output(src)
 """
         )
@@ -512,7 +534,7 @@ def get_file_info(vfile: Path, mode: str) -> tuple[list[int], bool, int, int, in
             console=console
         ) as progress:
 
-        task = progress.add_task("[green]Finding scenes                ", total=nframe)
+        task = progress.add_task("[green]Finding scenes          " if ssimu2 == "" else "[green]Finding scenes                ", total=nframe)
 
         def progress_func(n: int, num_frames: int) -> None:
             progress.update(task, completed=n)
@@ -528,7 +550,7 @@ def get_file_info(vfile: Path, mode: str) -> tuple[list[int], bool, int, int, in
             callback=get_props
         )
 
-        progress.update(task, description="[cyan]Found scenes                  ", completed=nframe)
+        progress.update(task, description="[cyan]Found scenes            " if ssimu2 == "" else "[cyan]Found scenes                  ", completed=nframe)
 
     if 'src' in locals():
         del src
@@ -618,7 +640,7 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
         console=console
     ) as progress:
 
-        task = progress.add_task("[yellow]Initializing                  ", total=None)
+        task = progress.add_task("[yellow]Initializing            " if ssimu2 == "" else "[yellow]Initializing                  ", total=None)
 
         try:
             vpy_vars = {}
@@ -639,7 +661,7 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
 
             progress.update(
                 task,
-                description=f"[green]Encoding {enc_pass} pass           {is_fast}",
+                description=f"[green]Encoding {enc_pass} pass     {is_fast}" if ssimu2 == "" else f"[green]Encoding {enc_pass} pass           {is_fast}",
                 completed=vspipe_resume_value_loc,
                 total=clip_og.num_frames
             )
@@ -651,7 +673,7 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
 
             progress.update(
                 task,
-                description=f"[green]Finalizing {enc_pass} pass         {is_fast}",
+                description=f"[green]Finalizing {enc_pass} pass   {is_fast}" if ssimu2 == "" else f"[green]Finalizing {enc_pass} pass         {is_fast}",
                 completed=vspipe_resume_value_loc + progress.tasks[task].total - 1
             )
 
@@ -664,7 +686,7 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
 
             progress.update(
                 task,
-                description=f"[cyan]Completed {enc_pass} pass          {is_fast}",
+                description=f"[cyan]Completed {enc_pass} pass    {is_fast}" if ssimu2 == "" else f"[cyan]Completed {enc_pass} pass          {is_fast}",
                 completed=vspipe_resume_value_loc + progress.tasks[task].total
             )
 
@@ -689,7 +711,7 @@ def fast_pass() -> None:
     encoder_params = f''
     if not isinstance(fast_speed, int):
         encoder_params += f'--speed {fast_speed} '
-    if not isinstance(quality, int):
+    if not isinstance(quality, (int, float)):
         encoder_params += f'--quality {quality} '
     if fast_params:
         encoder_params += f'{fast_params}'
@@ -746,7 +768,7 @@ def final_pass() -> None:
     encoder_params = f''
     if not isinstance(final_speed, int):
         encoder_params += f'--speed {final_speed} '
-    if not isinstance(quality, int):
+    if not isinstance(quality, (int, float)):
         encoder_params += f'--quality {quality} '
     if final_params:
         encoder_params += f'{final_params}'
@@ -805,9 +827,9 @@ def final_pass() -> None:
     if resume and resume_file.exists():
         merge_ivf_parts(resume_file, tmp_final_output_file, fwidth, fheight, ffpsnum, ffpsden)
 
-def calculate_ssimu2() -> None:
+def calculate_metric() -> None:
     """
-    Calculate SSIMULACRA2 metrics score.
+    Calculate SSIMULACRA2 or XPSNR metrics score.
     """
     try:
         source_clip = core.ffms2.Source(source=src_file, cachefile=f"{cache_file}")
@@ -835,23 +857,52 @@ def calculate_ssimu2() -> None:
         cut_source_clip = source_clip
         cut_encoded_clip = encoded_clip
 
-    if cpu:
-        result = core.vszip.Metrics(cut_source_clip, cut_encoded_clip, mode=0)
-    else:
+    global ssimu2
+    if ssimu2 == "":
+        try:
+            result = core.vszip.XPSNR(cut_source_clip, cut_encoded_clip, temporal=False, verbose=False)
+        except:
+            console.print(f"[red]vs-zip not found. Check your installation.")
+            raise SystemExit(1)
+    elif ssimu2 == "gpu":
         try:
             result = core.vship.SSIMULACRA2(cut_source_clip, cut_encoded_clip)
         except:
+            console.print(f"[red]Vship not found. Check your installation.")
+            raise SystemExit(1)
+    elif ssimu2 == "cpu":
+        try:
+            result = core.vszip.SSIMULACRA2(cut_source_clip, cut_encoded_clip)
+        except:
+            console.print(f"[red]vs-zip not found. Check your installation.")
+            raise SystemExit(1)
+    else:
+        try:
+            result = core.vship.SSIMULACRA2(cut_source_clip, cut_encoded_clip)
+            ssimu2 = "gpu"
+        except:
             console.print(f"[yellow]Vship not found or available, defaulting to vs-zip.")
             try:
-                result = core.vszip.Metrics(cut_source_clip, cut_encoded_clip, mode=0)
+                result = core.vszip.SSIMULACRA2(cut_source_clip, cut_encoded_clip)
+                ssimu2 = "cpu"
             except:
                 console.print(f"[red]vs-zip not found either. Check your installation.")
                 raise SystemExit(1)
 
-    score_list = [None] * result.num_frames
+    if ssimu2 == "":
+        score_list = [[None] * cut_source_clip.num_frames for _ in range(3)]
+    else:
+        score_list = [None] * result.num_frames
+
+    def get_xpsnrprops(n: int, f: vs.VideoFrame) -> None:
+        for i, plane in enumerate(["Y", "U", "V"]):
+            if str(f.props.get(f"XPSNR_{plane}")) == "inf":
+                score_list[i][n] = "100.0"
+            else:
+                score_list[i][n] = float(f.props.get(f"XPSNR_{plane}"))
 
     def get_ssimu2props(n: int, f: vs.VideoFrame) -> None:
-        score_list[n] = float(f.props.get('_SSIMULACRA2'))
+        score_list[n] = float(f.props.get('_SSIMULACRA2')) if ssimu2 == "gpu" else float(f.props.get('SSIMULACRA2'))
 
     with Progress(
             SpinnerColumn(),
@@ -864,7 +915,7 @@ def calculate_ssimu2() -> None:
             console=console
         ) as progress:
 
-        task = progress.add_task("[green]Calculating SSIMULACRA2 scores", total=cut_source_clip.num_frames*skip)
+        task = progress.add_task("[green]Calculating XPSNR scores" if ssimu2 == "" else "[green]Calculating SSIMULACRA2 scores", total=cut_source_clip.num_frames*skip)
 
         def progress_func(n: int, num_frames: int) -> None:
             progress.update(task, advance=skip)
@@ -873,10 +924,10 @@ def calculate_ssimu2() -> None:
             result,
             outfile=None,
             progress=progress_func,
-            callback=get_ssimu2props
+            callback=get_xpsnrprops if ssimu2 == "" else get_ssimu2props
         )
 
-        progress.update(task, description="[cyan]Calculated SSIMULACRA2 scores ", completed=cut_source_clip.num_frames*skip)
+        progress.update(task, description="[cyan]Calculated XPSNR scores " if ssimu2 == "" else "[cyan]Calculated SSIMULACRA2 scores ", completed=cut_source_clip.num_frames*skip)
 
     if 'source_clip' in locals() and 'encoded_clip' in locals():
         del source_clip
@@ -884,17 +935,24 @@ def calculate_ssimu2() -> None:
         gc.collect()
 
     skip_offset = 0
-    with open(ssimu2_log_file, "w") as file:
-        for index, score in enumerate(score_list):
-            for i in range(skip):
-                file.write(f"{index+skip_offset+i}: {score}\n")
-            skip_offset += skip - 1
+    if ssimu2 == "":
+        with open(xpsnr_log_file, "w") as file:
+            for index in range(len(score_list[0])):
+                for i in range(skip):
+                    file.write(f"{index+skip_offset+i}: {score_list[0][index]} {score_list[1][index]} {score_list[2][index]}\n")
+                skip_offset += skip - 1
+    else:
+        with open(ssimu2_log_file, "w") as file:
+            for index, score in enumerate(score_list):
+                for i in range(skip):
+                    file.write(f"{index+skip_offset+i}: {score}\n")
+                skip_offset += skip - 1
 
 def metrics_aggregation(score_list: list[float]) -> tuple[float, float]:
     """
     Takes a list of metrics scores and aggregatates them into the desired formats.
 
-    :param score_list: list of SSIMULACRA2 scores
+    :param score_list: list of metrics scores
     :type score_list: list[float]
 
     :return: average and 15th percentile scores
@@ -909,7 +967,7 @@ def metrics_aggregation(score_list: list[float]) -> tuple[float, float]:
 
 def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
     """
-    Retrieves SSIMULACRA2 scores, runs metrics aggregation and make CRF adjustement decisions.
+    Retrieves SSIMULACRA2 or XPSNR scores, runs metrics aggregation and make CRF adjustement decisions.
 
     :param ranges: scene changes list
     :type ranges: list
@@ -921,47 +979,72 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
     :return: string containing zones information
     :rtype: str
     """
-    ssimu2_scores: list[int] = []
+    metric_scores: list[int] = []
 
-    if not ssimu2_log_file.exists():
+    if not xpsnr_log_file.exists() and ssimu2 == "":
+        console.print("[red]Cannot find the metrics file. Did you run the previous stages?")
+        raise SystemExit(1)
+    elif not ssimu2_log_file.exists() and ssimu2 != "":
         console.print("[red]Cannot find the metrics file. Did you run the previous stages?")
         raise SystemExit(1)
 
-    with open(ssimu2_log_file, "r") as file:
-        for line in file:
-            match = re.search(r"([0-9]+): (-?[0-9]+\.[0-9]+)", line)
-            if match:
-                score = float(match.group(2))
-                ssimu2_scores.append(score)
-            else:
-                console.print("[red]Unexpected error with metric log file.\nTry re-running stage 2. Exiting.")
-                raise SystemExit(1)
+    if ssimu2 == "":
+        with open(xpsnr_log_file, "r") as file:
+            for line in file:
+                match = re.search(r"([0-9]+): ([0-9]+\.[0-9]+) ([0-9]+\.[0-9]+) ([0-9]+\.[0-9]+)", line)
+                if match:
+                    score_y = float(match.group(2))
+                    score_u = float(match.group(3))
+                    score_v = float(match.group(4))
 
-    ssimu2_total_scores = []
-    ssimu2_percentile_15_total = []
-    ssimu2_min_total = []
+                    maxval: int = 255
+                    xpsnr_mse_y: float = (maxval**2) / (10 ** (score_y / 10)) # PSNR to MSE
+                    xpsnr_mse_u: float = (maxval**2) / (10 ** (score_u / 10)) # PSNR to MSE
+                    xpsnr_mse_v: float = (maxval**2) / (10 ** (score_v / 10)) # PSNR to MSE
+                    w_xpsnr_mse: float = ((4.0 * xpsnr_mse_y) + xpsnr_mse_u + xpsnr_mse_v) / 6.0
+                    score_weighted = 10.0 * log10((maxval**2) / w_xpsnr_mse)
+
+                    metric_scores.append(score_weighted)
+                else:
+                    console.print("[red]Unexpected error with metric log file.\nTry re-running stage 2. Exiting.")
+                    raise SystemExit(1)
+    else:
+        with open(ssimu2_log_file, "r") as file:
+            for line in file:
+                match = re.search(r"([0-9]+): (-?[0-9]+\.[0-9]+)", line)
+                if match:
+                    score = float(match.group(2))
+                    metric_scores.append(score)
+                else:
+                    console.print("[red]Unexpected error with metric log file.\nTry re-running stage 2. Exiting.")
+                    raise SystemExit(1)
+
+    metric_total_scores = []
+    metric_percentile_15_total = []
+    metric_min_total = []
 
     for index in range(len(ranges)):
-        ssimu2_chunk_scores = []
+        metric_chunk_scores = []
         if index == len(ranges)-1:
-            ssimu2_frames = nframe - ranges[index]
+            metric_frames = nframe - ranges[index]
         else:
-            ssimu2_frames = ranges[index+1] - ranges[index]
-        for scene_index in range(ssimu2_frames):
-            ssimu2_score = ssimu2_scores[ranges[index]+scene_index]
-            ssimu2_chunk_scores.append(ssimu2_score)
-            ssimu2_total_scores.append(ssimu2_score)
-        (ssimu2_average, ssimu2_percentile_15, ssimu2_min) = metrics_aggregation(ssimu2_chunk_scores)
-        ssimu2_percentile_15_total.append(ssimu2_percentile_15)
-        ssimu2_min_total.append(ssimu2_min)
-    (ssimu2_average, ssimu2_percentile_15, ssimu2_min) = metrics_aggregation(ssimu2_total_scores)
+            metric_frames = ranges[index+1] - ranges[index]
+        for scene_index in range(metric_frames):
+            metric_score = metric_scores[ranges[index]+scene_index]
+            metric_chunk_scores.append(metric_score)
+            metric_total_scores.append(metric_score)
+        (metric_average, metric_percentile_15, metric_min) = metrics_aggregation(metric_chunk_scores)
+        metric_percentile_15_total.append(metric_percentile_15)
+        metric_min_total.append(metric_min)
+    (metric_average, metric_percentile_15, metric_min) = metrics_aggregation(metric_total_scores)
 
     if verbose:
-        index_min = min(range(len(ssimu2_scores)), key=ssimu2_scores.__getitem__)
-        console.print(f'SSIMULACRA2:\n'
-                      f'Mean score: {ssimu2_average:.4f}\n'
-                      f'15th percentile: {ssimu2_percentile_15:.4f}\n'
-                      f'Worst scoring frame: {index_min} ({ssimu2_scores[index_min]:.4f})')
+        index_min = min(range(len(metric_scores)), key=metric_scores.__getitem__)
+        metric = "XPSNR" if ssimu2 == "" else "SSIMULACRA2"
+        console.print(f'{metric}:\n'
+                      f'Mean score: {metric_average:.4f}\n'
+                      f'15th percentile: {metric_percentile_15:.4f}\n'
+                      f'Worst scoring frame: {index_min} ({metric_scores[index_min]:.4f})')
 
     match quality:
         case "low":
@@ -978,7 +1061,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
             
             # Calculate CRF adjustment using aggressive or normal multiplier
             multiplier = 40 if aggressive else 20
-            adjustment = ceil((1.0 - (ssimu2_percentile_15_total[index] / ssimu2_average)) * multiplier)
+            adjustment = ceil((1.0 - (metric_percentile_15_total[index] / metric_average)) * multiplier * 4) / 4
             new_crf = crf - adjustment
 
             # Apply sane limits
@@ -994,7 +1077,7 @@ def calculate_zones(ranges: list[float], hr: bool, nframe: int) -> None:
                 end_range = ranges[index+1]
 
             if verbose:
-                console.print(f'Chunk: [{ranges[index]}:{end_range}] / 15th percentile: {ssimu2_percentile_15_total[index]:.4f} / CRF adjustment: {-adjustment} / Final CRF: {new_crf}')
+                console.print(f'Chunk: [{ranges[index]}:{end_range}] / 15th percentile: {metric_percentile_15_total[index]:.4f} / CRF adjustment: {-adjustment} / Final CRF: {new_crf}')
 
             if index == 0:
                 file.write(f"Zones : {ranges[index]},{end_range-1},{new_crf};")
@@ -1017,7 +1100,7 @@ match stage:
             print('Stage 1 complete!')
         if stage_resume < 3:
             try:
-                calculate_ssimu2()
+                calculate_metric()
             except KeyboardInterrupt:
                 console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
                 raise SystemExit(1)
@@ -1047,7 +1130,7 @@ match stage:
         print('Stage 1 complete!')
     case 2:
         try:
-            calculate_ssimu2()
+            calculate_metric()
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted by user (Ctrl+C). Stopping...[/yellow]")
             raise SystemExit(1)
