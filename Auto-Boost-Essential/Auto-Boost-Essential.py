@@ -866,7 +866,7 @@ def calculate_metric() -> None:
             raise SystemExit(1)
     elif ssimu2 == "gpu":
         try:
-            result = core.vship.SSIMULACRA2(cut_source_clip, cut_encoded_clip, numStream = 2))
+            result = core.vship.SSIMULACRA2(cut_source_clip, cut_encoded_clip, numStream = 2)
         except:
             console.print(f"[red]Vship not found. Check your installation.")
             raise SystemExit(1)
