@@ -14,7 +14,7 @@ The quality metrics at play this time again are **SSIMULACRA2** and **XPSNR**.
 Before using Auto-Boost-Essential, you will need to install the following dependencies:
 - [SVT-AV1-Essential](https://github.com/nekotrix/SVT-AV1-Essential/releases) (a build with quarter-step CRF is mandatory with Auto-Boost-Essential v2.0+)
 - Python 3.12.x or newer
-- [Vship](https://github.com/Line-fr/Vship/releases) (AMD/Nvidia GPU) and/or [vs-zip](https://github.com/dnjulek/vapoursynth-zip/releases/) (CPU)
+- [Vship](https://codeberg.org/Line-fr/Vship/releases) (AMD/Nvidia GPU) and/or [vs-zip](https://github.com/dnjulek/vapoursynth-zip/releases/) (CPU)
 - [Vapoursynth](https://github.com/vapoursynth/vapoursynth/releases) and [vstools](https://pypi.org/project/vstools/) ([vsjetpack](https://pypi.org/project/vsjetpack/) works too!)
 - [FFMS2](https://github.com/FFMS/ffms2/releases)
 
@@ -87,3 +87,4 @@ The above results are not even best-case scenarios. The selected samples are ver
 
 
 *Join us over at [AV1 weeb edition](https://discord.gg/83dRFDFDp7)!*
+
