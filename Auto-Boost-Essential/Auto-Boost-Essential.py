@@ -9,7 +9,7 @@
 # Requires manually installing:
 # SVT-AV1-Essential: https://github.com/nekotrix/SVT-AV1-Essential/discussions/12
 # in your system PATH or the script's directory, and:
-# Vship (GPU):       https://github.com/Line-fr/Vship/releases
+# Vship (GPU):       https://codeberg.org/Line-fr/Vship/releases
 # or vs-zip (CPU):   https://github.com/dnjulek/vapoursynth-zip/releases/
 # and FFMS2:         https://github.com/FFMS/ffms2/releases
 # in the VapourSynth plugin directory
