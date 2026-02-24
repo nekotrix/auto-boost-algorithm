@@ -15,7 +15,7 @@ Before using Auto-Boost-Essential, you will need to install the following depend
 - [SVT-AV1-Essential](https://github.com/nekotrix/SVT-AV1-Essential/releases) (a build with quarter-step CRF is mandatory with Auto-Boost-Essential v2.0+)
 - Python 3.12.x or newer
 - [Vship](https://codeberg.org/Line-fr/Vship/releases) (AMD/Nvidia GPU) and/or [vs-zip](https://github.com/dnjulek/vapoursynth-zip/releases/) (CPU)
-- [Vapoursynth](https://github.com/vapoursynth/vapoursynth/releases) and vstools, part of ([vsjetpack](https://pypi.org/project/vsjetpack/)
+- [Vapoursynth](https://github.com/vapoursynth/vapoursynth/releases) and vstools, part of [vsjetpack](https://pypi.org/project/vsjetpack/)
 - [FFMS2](https://github.com/FFMS/ffms2/releases)
 
 Lost users can refer to this [Vapoursynth install guide](https://jaded-encoding-thaumaturgy.github.io/JET-guide/master/basics/installation/) (up until "Installing the JET Packages"). If you are still lost, join the Discord server linked below and ask for help!
@@ -87,5 +87,6 @@ The above results are not even best-case scenarios. The selected samples are ver
 
 
 *Join us over at [AV1 weeb edition](https://discord.gg/83dRFDFDp7)!*
+
 
 
