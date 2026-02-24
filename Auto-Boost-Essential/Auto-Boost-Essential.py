@@ -269,10 +269,10 @@ bit_to_format = {{
 bit_to_dither = {{
     8: DitherType.NONE,
     10: DitherType.NONE,
-    12: DitherType.AUTO
+    12: DitherType.RANDOM
 }}
 fmt = bit_to_format.get(src.format.bits_per_sample, vs.YUV420P16)
-dt = bit_to_dither.get(src.format.bits_per_sample, DitherType.AUTO)
+dt = bit_to_dither.get(src.format.bits_per_sample, DitherType.RANDOM)
 src = depth(src.resize.Bilinear(format=fmt), 10, dither_type=dt)
 set_output(src)
 """
