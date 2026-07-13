@@ -505,6 +505,9 @@ def get_file_info(vfile: Path, mode: str) -> tuple[list[int], bool, int, int, in
             src = core.ffms2.Source(source=vfile, cachefile=f"{cache_file}")
         else:
             src = core.ffms2.Source(source=vfile, cache=False)
+    except vs.Error:
+        if verbose: console.print(f"[yellow]Broken file")
+        return [0], False, 0, 0, 0, 0, 0
     except:
         console.print(f"[red]Cannot retrieve file information. Did you run the previous stages?")
         raise SystemExit(1)
@@ -585,7 +588,7 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
     :rtype: tuple[str, int, Path, int, int, int, int]
     """
     if not enc_file.exists():
-        return "", "", zones_file, "", "", "", ""
+        return "", 0, zones_file, "", "", "", ""
 
     _, _, nframe_enc, _, _, _, _ = get_file_info(enc_file, "len")
     _, _, nframe_src, _, _, ffpsnum, ffpsden = get_file_info(src_file, "src")
@@ -602,7 +605,7 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
             print('Stage 4 complete!')
             console.print("\n[bold]Auto-boost complete!")
             raise SystemExit(0)
-        return "", "", zones_file, "", "", "", ""
+        return "", 0, zones_file, "", "", "", ""
 
     total_prev = get_total_previous_frames(enc_file)
 
@@ -612,7 +615,7 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
     if len(ranges) == 1:
         print(f"Not enough frames to resume in the {state} pass. Restarting...")
         os.remove(enc_file)
-        return "", "", zones_file, "", "", "", ""
+        return "", 0, zones_file, "", "", "", ""
 
     resume_file = get_next_filename(enc_file)
     trim_ivf_from_last_keyframe(enc_file, resume_file, last_gop_start)
@@ -627,7 +630,7 @@ def set_resuming_params(enc_file: Path, zones_file: Path, state: str) -> tuple[s
 
     return f"--skip {total_resume_point}", total_resume_point, offset_zones_path, fwidth, fheight, ffpsnum, ffpsden
 
-def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
+def track_progress(vspipe_resume_frame: int, svt_cmd: list[str], enc_pass: str):
     is_fast = " " if enc_pass == "fast" else ""
 
     with Progress(
@@ -647,11 +650,8 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
             vpy_vars = {}
             exec(open(vpy_file).read(), globals(), vpy_vars)
             clip_og = clip = vpy_vars["src"]
-            if vspipe_resume_value:
-                vspipe_resume_value_loc = int(vspipe_resume_value)
-                clip = vpy_vars["src"][vspipe_resume_value_loc:]
-            else:
-                vspipe_resume_value_loc = 0
+            if vspipe_resume_frame:
+                clip = vpy_vars["src"][vspipe_resume_frame:]
 
             svt_proc = subprocess.Popen(
                 svt_cmd,
@@ -663,19 +663,19 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
             progress.update(
                 task,
                 description=f"[green]Encoding {enc_pass} pass     {is_fast}" if ssimu2 == "" else f"[green]Encoding {enc_pass} pass           {is_fast}",
-                completed=vspipe_resume_value_loc,
+                completed=vspipe_resume_frame,
                 total=clip_og.num_frames
             )
 
             def prog_func(current_frame, total_frames):
-                progress.update(task, completed=vspipe_resume_value_loc+current_frame)
+                progress.update(task, completed=vspipe_resume_frame + current_frame)
 
             clip.output(svt_proc.stdin, y4m=True, progress_update=prog_func)
 
             progress.update(
                 task,
                 description=f"[green]Finalizing {enc_pass} pass   {is_fast}" if ssimu2 == "" else f"[green]Finalizing {enc_pass} pass         {is_fast}",
-                completed=vspipe_resume_value_loc + progress.tasks[task].total - 1
+                completed=vspipe_resume_frame + progress.tasks[task].total - 1
             )
 
             svt_proc.communicate()
@@ -688,7 +688,7 @@ def track_progress(vspipe_resume_value: int, svt_cmd: list[str], enc_pass: str):
             progress.update(
                 task,
                 description=f"[cyan]Completed {enc_pass} pass    {is_fast}" if ssimu2 == "" else f"[cyan]Completed {enc_pass} pass          {is_fast}",
-                completed=vspipe_resume_value_loc + progress.tasks[task].total
+                completed=vspipe_resume_frame + progress.tasks[task].total
             )
 
         except KeyboardInterrupt:
@@ -723,9 +723,9 @@ def fast_pass() -> None:
     encoder_params_list = encoder_params.split()
 
     svt_resume_list = ""
-    vspipe_resume_value = ""
+    vspipe_resume_frame: int = 0
     if resume:
-        svt_resume_string, vspipe_resume_value, _, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(fast_output_file, "", "fast")
+        svt_resume_string, vspipe_resume_frame, _, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(fast_output_file, "", "fast")
         svt_resume_list = svt_resume_string.split()
 
     if file_ext in [".y4m", ".yuv"]:
@@ -756,7 +756,7 @@ def fast_pass() -> None:
             '-b', fast_output_file
             ]
 
-        track_progress(vspipe_resume_value, fast_svt_cmd, "fast")
+        track_progress(vspipe_resume_frame, fast_svt_cmd, "fast")
 
     resume_file = tmp_dir / f"{fast_output_file.stem}__1.ivf"
     if resume and resume_file.exists():
@@ -780,10 +780,10 @@ def final_pass() -> None:
     encoder_params_list = encoder_params.split()
 
     svt_resume_list = ""
-    vspipe_resume_value = ""
+    vspipe_resume_frame: int = 0
     active_zones_path = zones_file
     if resume:
-        svt_resume_string, vspipe_resume_value, active_zones_path, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(tmp_final_output_file, zones_file, "final")
+        svt_resume_string, vspipe_resume_frame, active_zones_path, fwidth, fheight, ffpsnum, ffpsden = set_resuming_params(tmp_final_output_file, zones_file, "final")
         svt_resume_list = svt_resume_string.split()
 
     if file_ext in [".y4m", ".yuv"]:
@@ -822,7 +822,7 @@ def final_pass() -> None:
 
         final_svt_cmd.extend(['-b', tmp_final_output_file])
 
-        track_progress(vspipe_resume_value, final_svt_cmd, "final")
+        track_progress(vspipe_resume_frame, final_svt_cmd, "final")
 
     resume_file = tmp_dir / f"{tmp_final_output_file.stem}__1.ivf"
     if resume and resume_file.exists():
