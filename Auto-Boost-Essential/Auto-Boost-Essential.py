@@ -258,7 +258,7 @@ if not os.path.exists(vpy_file):
     with open(vpy_file, 'w') as file:          
         file.write(
 f"""
-from vstools import vs, core, depth, DitherType, set_output
+from vstools import vs, core, depth, DitherType
 core.max_cache_size = 1024
 src = core.ffms2.Source(source=r"{src_file}", cachefile=r"{cache_file}")
 bit_to_format = {{
@@ -274,7 +274,7 @@ bit_to_dither = {{
 fmt = bit_to_format.get(src.format.bits_per_sample, vs.YUV420P16)
 dt = bit_to_dither.get(src.format.bits_per_sample, DitherType.RANDOM)
 src = depth(src.resize.Bilinear(format=fmt), 10, dither_type=dt)
-set_output(src)
+src.set_output()
 """
         )
 
